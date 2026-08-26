@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>番茄钟</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="phase-study">
+
+  <!-- 无边框窗口自绘标题栏（可拖动） -->
+  <div class="titlebar">
+    <span class="tb-title">番茄钟</span>
+    <div class="tb-controls">
+      <button id="btnTop" class="tb-btn tb-toggle" title="置顶">📌</button>
+      <button id="btnLock" class="tb-btn tb-toggle" title="固定当前位置">🔓</button>
+      <button id="btnMin" class="tb-btn" title="最小化">─</button>
+      <button id="btnClose" class="tb-btn tb-close" title="关闭">✕</button>
+    </div>
+  </div>
+
+  <main>
+    <!-- 北京时间（常驻） -->
+    <section class="card clock-card">
+      <div class="label">北京时间</div>
+      <div id="clock">00:00:00</div>
+    </section>
+
+    <!-- 学习/休息倒计时（常驻） -->
+    <section class="card timer-card">
+      <div class="timer-head">
+        <span id="phaseBadge" class="badge">学习</span>
+        <span id="phaseNote" class="phase-note">待开始</span>
+      </div>
+      <div id="countdown">25:00</div>
+      <div class="progress"><div id="progressBar"></div></div>
+      <div class="controls">
+        <button id="btnStart" class="btn primary">开始</button>
+        <button id="btnStop" class="btn">停止</button>
+        <button id="btnSwitch" class="btn">切换</button>
+      </div>
+    </section>
+
+    <!-- 展开开关：点击显示对应区块 -->
+    <div class="toggles">
+      <button class="chip" data-target="recordCard">记录</button>
+      <button class="chip" data-target="statsCard">统计</button>
+      <button class="chip" data-target="todoCard">待办</button>
+      <button class="chip" data-target="settingsCard">设置</button>
+    </div>
+
+    <!-- 记录：本次学习 + 历史日历（默认隐藏） -->
+    <section class="card" id="recordCard" hidden>
+      <div class="row-between">
+        <span class="label">本次学习</span>
+        <span class="hint" id="recordHint">点击「记录」入账到今日与 Excel</span>
+      </div>
+      <div id="sessionTime">0 分钟</div>
+      <button id="btnRecord" class="btn primary record-btn">记录本次学习</button>
+
+      <div class="cal-head">
+        <button id="calPrev" class="cal-nav" title="上个月">◀</button>
+        <span id="calTitle" class="cal-title"></span>
+        <button id="calNext" class="cal-nav" title="下个月">▶</button>
+        <button id="calToday" class="btn small">今天</button>
+      </div>
+      <div id="calendar" class="calendar"></div>
+      <div class="hint" id="monthTotal" style="margin-top:8px"></div>
+      <div class="hint file-hint" id="recordFileHint"></div>
+    </section>
+
+    <!-- 今日累计（默认隐藏） -->
+    <section class="card" id="statsCard" hidden>
+      <span class="label">今日累计学习</span>
+      <div id="todayStat">0 分钟</div>
+      <div class="hint" id="todayNote">每次点击「记录」后计入</div>
+    </section>
+
+    <!-- 今日待办（默认隐藏） -->
+    <section class="card" id="todoCard" hidden>
+      <div class="row-between">
+        <span class="label">今日待办</span>
+        <span class="hint" id="todoHint">每日 6:00 自动清除 · 最多 4 项</span>
+      </div>
+      <div class="todo-add">
+        <input id="todoInput" type="text" placeholder="添加待办，按回车确认" maxlength="60">
+        <button id="todoAdd" class="btn small">添加</button>
+      </div>
+      <ul id="todoList" class="todos"></ul>
+    </section>
+
+    <!-- 设置（默认隐藏） -->
+    <section class="card" id="settingsCard" hidden>
+      <div class="settings-body">
+
+        <div class="section">
+          <h4>学习时长</h4>
+          <div class="row">
+            <div class="stepper">
+              <button type="button" data-act="studyHMinus">−</button>
+              <input id="studyH" type="number" min="0" max="23" step="1">
+              <button type="button" data-act="studyHPlus">＋</button>
+            </div>
+            <span class="unit">小时</span>
+            <div class="stepper">
+              <button type="button" data-act="studyMMinus">−</button>
+              <input id="studyM" type="number" min="0" max="59" step="1">
+              <button type="button" data-act="studyMPlus">＋</button>
+            </div>
+            <span class="unit">分钟</span>
+          </div>
+        </div>
+
+        <div class="section">
+          <h4>休息时长</h4>
+          <div class="row">
+            <div class="stepper">
+              <button type="button" data-act="breakHMinus">−</button>
+              <input id="breakH" type="number" min="0" max="23" step="1">
+              <button type="button" data-act="breakHPlus">＋</button>
+            </div>
+            <span class="unit">小时</span>
+            <div class="stepper">
+              <button type="button" data-act="breakMMinus">−</button>
+              <input id="breakM" type="number" min="0" max="59" step="1">
+              <button type="button" data-act="breakMPlus">＋</button>
+            </div>
+            <span class="unit">分钟</span>
+          </div>
+        </div>
+
+        <div class="section">
+          <h4>字体大小</h4>
+          <div class="range-row"><span class="range-label">北京时间</span><input id="clockSize" type="range" min="40" max="140" step="1"><span id="clockSizeVal" class="range-val"></span></div>
+          <div class="range-row"><span class="range-label">学习倒计时</span><input id="studySize" type="range" min="28" max="96" step="1"><span id="studySizeVal" class="range-val"></span></div>
+          <div class="range-row"><span class="range-label">休息倒计时</span><input id="breakSize" type="range" min="28" max="96" step="1"><span id="breakSizeVal" class="range-val"></span></div>
+        </div>
+
+        <div class="section">
+          <h4>提示音量</h4>
+          <div class="range-row"><span class="range-label">音量</span><input id="volume" type="range" min="0" max="100" step="1"><span id="volumeVal" class="range-val"></span></div>
+        </div>
+
+        <div class="section">
+          <h4>提示音</h4>
+          <div class="audio-row"><span class="range-label">学习结束 A</span><button id="btnAudioA" class="btn small">选择文件</button><button id="btnPlayA" class="btn small">试听</button><span id="audioAName" class="audio-name">未设置</span></div>
+          <div class="audio-row"><span class="range-label">休息结束 B</span><button id="btnAudioB" class="btn small">选择文件</button><button id="btnPlayB" class="btn small">试听</button><span id="audioBName" class="audio-name">未设置</span></div>
+          <div class="hint">学习时间结束播放 A，休息时间结束播放 B</div>
+        </div>
+
+        <div class="section">
+          <h4>开机自启动</h4>
+          <label class="switch-row">
+            <input type="checkbox" id="autoLaunch">
+            <span class="switch"></span>
+            <span class="switch-text">开机时自动启动番茄钟</span>
+          </label>
+        </div>
+
+      </div>
+    </section>
+  </main>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
