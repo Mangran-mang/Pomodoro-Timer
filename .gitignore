@@ -1,0 +1,8 @@
+node_modules/
+dist/
+dist-*/
+*.log
+smoke-result.txt
+学习记录.xlsx
+使用说明.md
+

@@ -1,12 +1,13 @@
 {
   "name": "tomato-clock",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "简约护眼番茄钟 - 本地桌面应用",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "build": "electron-builder --win portable",
-    "build:installer": "electron-builder --win nsis"
+    "build:installer": "electron-builder --win nsis",
+    "release": "node release.js"
   },
   "build": {
     "appId": "com.tomato.clock",

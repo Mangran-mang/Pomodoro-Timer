@@ -167,6 +167,11 @@ main {
 .btn.primary:hover { background: var(--accent-strong); }
 .btn.small { padding: 6px 14px; font-size: 13px; border-radius: 8px; }
 
+/* ============ 连续学习模式 ============ */
+/* 无倒计时：隐藏进度条与「切换」按钮，数字改为正计时（renderer 处理） */
+body.mode-continuous .progress { display: none; }
+body.mode-continuous #btnSwitch { display: none; }
+
 /* ============ 展开开关（统计/待办/设置） ============ */
 .toggles { display: flex; gap: 8px; justify-content: center; }
 .chip {

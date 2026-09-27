@@ -150,8 +150,9 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-  cleanupLegacyRunEntries(); // 清理旧版自启动残留
-  normalizeRecordsFile();    // 合并 Excel 里已有的重复日期（每天一行）
+  cleanupLegacyRunEntries();  // 清理旧版自启动残留
+  validateAutoLaunchEntry();  // 清理指向已不存在文件的失效条目
+  normalizeRecordsFile();     // 合并 Excel 里已有的重复日期（每天一行）
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -223,16 +224,39 @@ function readAutoLaunch() {
   });
 }
 
+// 启动时校验自启动条目：若指向的文件已不存在（如旧版便携把路径写进了临时目录），自动清理
+function validateAutoLaunchEntry() {
+  return new Promise((resolve) => {
+    execFile('reg', ['query', RUN_KEY, '/v', RUN_NAME], { windowsHide: true }, (err, stdout) => {
+      if (err || !stdout) return resolve();
+      const m = String(stdout).match(/"([^"]+)"/);
+      const p = m ? m[1] : null;
+      if (p && !fs.existsSync(p)) {
+        regExec(['delete', RUN_KEY, '/v', RUN_NAME, '/f']);
+      }
+      resolve();
+    });
+  });
+}
+
 async function writeAutoLaunch(enabled) {
   // 先清掉自身与旧版残留，避免重复/损坏条目
   for (const n of [RUN_NAME, ...LEGACY_RUN_NAMES]) {
     await regExec(['delete', RUN_KEY, '/v', n, '/f']);
   }
   if (enabled) {
-    // 打包后不需要传应用目录参数（资源已嵌在 exe 内），开发版才需要 __dirname
-    const cmd = isPackaged
-      ? `"${process.execPath}"`
-      : `"${process.execPath}" "${__dirname}"`;
+    let cmd;
+    if (process.env.PORTABLE_EXECUTABLE_FILE) {
+      // 便携版：注册表必须指向"真实"的便携 exe（$EXEPATH）。
+      // 注意：便携版运行时 process.execPath 是临时解压目录里的程序，关掉就被清理，
+      // 写成它会导致开机启动失败。
+      cmd = `"${process.env.PORTABLE_EXECUTABLE_FILE}"`;
+    } else if (isPackaged) {
+      cmd = `"${process.execPath}"`;
+    } else {
+      // 开发版：electron.exe + 应用目录
+      cmd = `"${process.execPath}" "${__dirname}"`;
+    }
     await regExec(['add', RUN_KEY, '/v', RUN_NAME, '/t', 'REG_SZ', '/d', cmd, '/f']);
   }
   return readAutoLaunch();

@@ -78,11 +78,23 @@ const currentDurationMs = () => (state.phase === 'study' ? studyMs() : breakMs()
 
 const state = {
   phase: 'study',        // 'study' | 'break'
+  mode: 'pomodoro',      // 'pomodoro' 倒计时 | 'continuous' 连续学习（无倒计时）
   running: false,
-  endTime: null,         // 运行中的结束时间戳
+  endTime: null,         // 运行中的结束时间戳（仅番茄钟模式）
   remaining: 0,          // 非运行时的剩余毫秒（暂停/待开始）
-  studyRunStart: null    // 当前学习运行段的开始时间（用于累计实际学习时长）
+  studyRunStart: null,   // 当前学习运行段的开始时间（用于累计实际学习时长）
+  contAccum: 0,          // 连续学习已累计毫秒（暂停时冻结）
+  contRunStart: null     // 连续学习当前运行段开始时间
 };
+
+// 连续学习已进行的总时长 = 已冻结部分 + 正在进行的段落
+function continuousElapsed() {
+  let ms = state.contAccum;
+  if (state.running && state.contRunStart != null) ms += Date.now() - state.contRunStart;
+  return ms;
+}
+
+const isContinuous = () => state.mode === 'continuous';
 
 function saveState() {
   lsSet('tomato-state', {
@@ -281,7 +293,8 @@ const els = {
   calNext: $('calNext'),
   calToday: $('calToday'),
   monthTotal: $('monthTotal'),
-  recordFileHint: $('recordFileHint')
+  recordFileHint: $('recordFileHint'),
+  chipContinuous: $('chipContinuous')
 };
 
 function renderTodos() {
@@ -434,12 +447,24 @@ function pickAudio(key) {
 /* ---------- 阶段与界面 ---------- */
 
 function updatePhaseUI() {
+  const cont = isContinuous();
   const isStudy = state.phase === 'study';
   document.body.classList.toggle('phase-study', isStudy);
   document.body.classList.toggle('phase-break', !isStudy);
-  els.phaseBadge.textContent = isStudy ? '学习' : '休息';
+  document.body.classList.toggle('mode-continuous', cont);
+  if (els.chipContinuous) els.chipContinuous.classList.toggle('active', cont);
+
+  els.phaseBadge.textContent = cont ? '连续学习' : (isStudy ? '学习' : '休息');
   els.countdown.style.fontSize = (isStudy ? settings.studySize : settings.breakSize) + 'px';
 
+  if (cont) {
+    els.phaseNote.textContent = state.running ? '不间断进行中' : '已暂停';
+    els.btnStart.textContent = state.running ? '暂停' : '继续';
+    els.btnStop.textContent = '结束';
+    return;
+  }
+
+  els.btnStop.textContent = '停止';
   const total = currentDurationMs();
   const note = state.running
     ? (isStudy ? '专注中' : '休息中')
@@ -458,16 +483,21 @@ function tick() {
     els.clock.textContent = beijingNow();
   }
 
-  if (state.running && state.endTime != null) {
-    state.remaining = state.endTime - now;
-    if (state.remaining <= 0) { completePhase(); return; }
+  if (isContinuous()) {
+    // 连续学习：正计时，永不结束
+    els.countdown.textContent = fmtCountdown(continuousElapsed());
+  } else {
+    if (state.running && state.endTime != null) {
+      state.remaining = state.endTime - now;
+      if (state.remaining <= 0) { completePhase(); return; }
+    }
+
+    els.countdown.textContent = fmtCountdown(state.remaining);
+
+    const total = currentDurationMs();
+    const pct = total > 0 ? Math.min(100, Math.max(0, (1 - state.remaining / total) * 100)) : 0;
+    els.progressBar.style.width = pct + '%';
   }
-
-  els.countdown.textContent = fmtCountdown(state.remaining);
-
-  const total = currentDurationMs();
-  const pct = total > 0 ? Math.min(100, Math.max(0, (1 - state.remaining / total) * 100)) : 0;
-  els.progressBar.style.width = pct + '%';
 
   els.todayStat.textContent = fmtDuration(todayRecordedMs());
   if (els.sessionTime) els.sessionTime.textContent = fmtDuration(sessionMs());
@@ -478,8 +508,53 @@ tick.lastSec = 0;
 
 /* ---------- 计时控制 ---------- */
 
+// 纯连续学习模式：无倒计时，正计时一直累计；时间照常进「本次学习」，可点「记录」入账
+function enterContinuous() {
+  if (isContinuous()) return;
+  const now = Date.now();
+  addStudySegment(now);        // 若番茄钟学习段正在跑，先并入本次学习，避免丢失
+  state.mode = 'continuous';
+  state.phase = 'study';
+  state.running = true;
+  state.endTime = null;
+  state.remaining = 0;
+  state.contAccum = 0;
+  state.contRunStart = now;
+  state.studyRunStart = now;   // 连续学习时间同样计入「本次学习」
+  saveState();
+  tick();
+}
+
+// 结束连续学习：时间保留在「本次学习」里，回到普通番茄钟待开始状态
+function exitContinuous() {
+  if (!isContinuous()) return;
+  addStudySegment(Date.now());
+  state.mode = 'pomodoro';
+  state.running = false;
+  state.endTime = null;
+  state.contAccum = 0;
+  state.contRunStart = null;
+  state.remaining = currentDurationMs();
+  saveState();
+  tick();
+}
+
+function toggleContinuous() {
+  if (isContinuous()) exitContinuous();
+  else enterContinuous();
+}
+
 function start() {
   if (state.running) return;
+  if (isContinuous()) {
+    const now = Date.now();
+    state.contRunStart = now;
+    state.running = true;
+    if (state.studyRunStart == null) state.studyRunStart = now;
+    saveState();
+    tick();
+    return;
+  }
   state.remaining = Math.max(1000, state.remaining);
   state.endTime = Date.now() + state.remaining;
   state.running = true;
@@ -490,6 +565,18 @@ function start() {
 
 function pause() {
   if (!state.running) return;
+  if (isContinuous()) {
+    const now = Date.now();
+    if (state.contRunStart != null) {
+      state.contAccum += now - state.contRunStart;
+      state.contRunStart = null;
+    }
+    state.running = false;
+    addStudySegment(now);
+    saveState();
+    tick();
+    return;
+  }
   state.remaining = Math.max(0, state.endTime - Date.now());
   state.running = false;
   state.endTime = null;
@@ -499,6 +586,7 @@ function pause() {
 }
 
 function stop() {
+  if (isContinuous()) { exitContinuous(); return; }   // 连续模式下「停止」= 结束连续学习
   addStudySegment(Date.now());
   state.running = false;
   state.endTime = null;
@@ -507,8 +595,9 @@ function stop() {
   tick();
 }
 
-// 手动切换（不播放提示音）
+// 手动切换（不播放提示音）；连续学习模式没有休息阶段
 function switchPhase() {
+  if (isContinuous()) return;
   addStudySegment(Date.now());
   state.phase = state.phase === 'study' ? 'break' : 'study';
   state.running = true;
@@ -553,10 +642,13 @@ function addStudySegment(now) {
 // 关闭即停止：每次启动都从"待开始"状态开始，不延续上次的倒计时
 function restoreState() {
   state.phase = 'study';
+  state.mode = 'pomodoro';   // 连续学习不跨重启，每次打开都从普通模式开始
   state.running = false;
   state.endTime = null;
   state.remaining = currentDurationMs();
   state.studyRunStart = null;
+  state.contAccum = 0;
+  state.contRunStart = null;
 }
 
 /* ---------- 设置界面 ---------- */
@@ -597,7 +689,7 @@ const STEP_MAP = {
 document.querySelectorAll('[data-act]').forEach((btn) => {
   btn.addEventListener('click', () => {
     const [key, delta] = STEP_MAP[btn.dataset.act];
-    const max = key.endsWith('Hours') ? 23 : 59;
+    const max = key.endsWith('Hours') ? 23 : 60;
     settings[key] = clampInt(settings[key] + delta, 0, max);
     saveSettings();
     syncDurationInputs();
@@ -624,9 +716,9 @@ function bindSlider(sliderEl, valEl, key, suffix, apply) {
 function initSettingsUI() {
   syncDurationInputs();
   bindDurationInput(els.studyH, 'studyHours', 23);
-  bindDurationInput(els.studyM, 'studyMinutes', 59);
+  bindDurationInput(els.studyM, 'studyMinutes', 60);
   bindDurationInput(els.breakH, 'breakHours', 23);
-  bindDurationInput(els.breakM, 'breakMinutes', 59);
+  bindDurationInput(els.breakM, 'breakMinutes', 60);
 
   bindSlider(els.clockSize, els.clockSizeVal, 'clockSize', 'px', () => {
     els.clock.style.fontSize = settings.clockSize + 'px';
@@ -717,6 +809,7 @@ document.querySelectorAll('.chip').forEach((chip) => {
 els.btnStart.addEventListener('click', () => (state.running ? pause() : start()));
 els.btnStop.addEventListener('click', stop);
 els.btnSwitch.addEventListener('click', switchPhase);
+els.chipContinuous.addEventListener('click', toggleContinuous);
 
 els.todoAdd.addEventListener('click', addTodo);
 els.todoInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') addTodo(); });

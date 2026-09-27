@@ -41,8 +41,9 @@
       </div>
     </section>
 
-    <!-- 展开开关：点击显示对应区块 -->
+    <!-- 展开开关：点击显示对应区块；「连续学习」是模式开关（无倒计时一直学） -->
     <div class="toggles">
+      <button class="chip" id="chipContinuous" title="无倒计时，一直学习直到手动结束">连续学习</button>
       <button class="chip" data-target="recordCard">记录</button>
       <button class="chip" data-target="statsCard">统计</button>
       <button class="chip" data-target="todoCard">待办</button>
@@ -104,7 +105,7 @@
             <span class="unit">小时</span>
             <div class="stepper">
               <button type="button" data-act="studyMMinus">−</button>
-              <input id="studyM" type="number" min="0" max="59" step="1">
+              <input id="studyM" type="number" min="0" max="60" step="1">
               <button type="button" data-act="studyMPlus">＋</button>
             </div>
             <span class="unit">分钟</span>
@@ -122,7 +123,7 @@
             <span class="unit">小时</span>
             <div class="stepper">
               <button type="button" data-act="breakMMinus">−</button>
-              <input id="breakM" type="number" min="0" max="59" step="1">
+              <input id="breakM" type="number" min="0" max="60" step="1">
               <button type="button" data-act="breakMPlus">＋</button>
             </div>
             <span class="unit">分钟</span>
