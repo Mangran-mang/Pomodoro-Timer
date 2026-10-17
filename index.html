@@ -41,9 +41,8 @@
       </div>
     </section>
 
-    <!-- 展开开关：点击显示对应区块；「连续学习」是模式开关（无倒计时一直学） -->
+    <!-- 展开开关：手风琴式，一次只展开一个区块 -->
     <div class="toggles">
-      <button class="chip" id="chipContinuous" title="无倒计时，一直学习直到手动结束">连续学习</button>
       <button class="chip" data-target="recordCard">记录</button>
       <button class="chip" data-target="statsCard">统计</button>
       <button class="chip" data-target="todoCard">待办</button>
@@ -95,38 +94,79 @@
       <div class="settings-body">
 
         <div class="section">
-          <h4>学习时长</h4>
-          <div class="row">
-            <div class="stepper">
-              <button type="button" data-act="studyHMinus">−</button>
-              <input id="studyH" type="number" min="0" max="23" step="1">
-              <button type="button" data-act="studyHPlus">＋</button>
-            </div>
-            <span class="unit">小时</span>
-            <div class="stepper">
-              <button type="button" data-act="studyMMinus">−</button>
-              <input id="studyM" type="number" min="0" max="60" step="1">
-              <button type="button" data-act="studyMPlus">＋</button>
-            </div>
-            <span class="unit">分钟</span>
+          <h4>计时模式</h4>
+          <div class="segmented" id="modeSegment">
+            <button type="button" class="seg-btn" data-mode="pomodoro">番茄钟计时</button>
+            <button type="button" class="seg-btn" data-mode="continuous">无限计时</button>
           </div>
+          <div class="hint">番茄钟：倒计时结束自动切换休息；无限计时：没有倒计时，一直累计直到手动结束</div>
         </div>
 
         <div class="section">
-          <h4>休息时长</h4>
+          <h4>空闲暂停</h4>
+          <label class="switch-row">
+            <input type="checkbox" id="idlePause">
+            <span class="switch"></span>
+            <span class="switch-text">5 分钟无键鼠操作时自动暂停计时</span>
+          </label>
+          <div class="hint">离开电脑或锁屏就停止计时，回来一动键鼠自动继续；不读取任何窗口内容</div>
+        </div>
+
+        <div class="section">
+          <h4>程序监控（白名单）</h4>
+          <div class="hint">列表里有任一程序在运行才计时；列表为空则不启用。定时检测每 10 秒一次</div>
+          <ul id="procList" class="proc-list"></ul>
           <div class="row">
-            <div class="stepper">
-              <button type="button" data-act="breakHMinus">−</button>
-              <input id="breakH" type="number" min="0" max="23" step="1">
-              <button type="button" data-act="breakHPlus">＋</button>
+            <button id="btnAddProc" class="btn small">添加程序</button>
+            <input id="procManualInput" type="text" class="proc-manual" placeholder="或手动输入进程名，如 pycharm64.exe" maxlength="80">
+            <button id="btnManualProc" class="btn small">添加</button>
+          </div>
+
+          <div id="procPicker" class="proc-picker" hidden>
+            <input id="procSearch" type="text" placeholder="搜索正在运行的进程…" maxlength="60">
+            <div id="procPickerList" class="proc-picker-list"></div>
+            <div class="row">
+              <button id="btnPickerOk" class="btn small primary">添加选中</button>
+              <button id="btnPickerCancel" class="btn small">取消</button>
             </div>
-            <span class="unit">小时</span>
-            <div class="stepper">
-              <button type="button" data-act="breakMMinus">−</button>
-              <input id="breakM" type="number" min="0" max="60" step="1">
-              <button type="button" data-act="breakMPlus">＋</button>
+          </div>
+        </div>
+
+        <div id="durationSections">
+          <div class="section">
+            <h4>学习时长</h4>
+            <div class="row">
+              <div class="stepper">
+                <button type="button" data-act="studyHMinus">−</button>
+                <input id="studyH" type="number" min="0" max="23" step="1">
+                <button type="button" data-act="studyHPlus">＋</button>
+              </div>
+              <span class="unit">小时</span>
+              <div class="stepper">
+                <button type="button" data-act="studyMMinus">−</button>
+                <input id="studyM" type="number" min="0" max="60" step="1">
+                <button type="button" data-act="studyMPlus">＋</button>
+              </div>
+              <span class="unit">分钟</span>
             </div>
-            <span class="unit">分钟</span>
+          </div>
+
+          <div class="section">
+            <h4>休息时长</h4>
+            <div class="row">
+              <div class="stepper">
+                <button type="button" data-act="breakHMinus">−</button>
+                <input id="breakH" type="number" min="0" max="23" step="1">
+                <button type="button" data-act="breakHPlus">＋</button>
+              </div>
+              <span class="unit">小时</span>
+              <div class="stepper">
+                <button type="button" data-act="breakMMinus">−</button>
+                <input id="breakM" type="number" min="0" max="60" step="1">
+                <button type="button" data-act="breakMPlus">＋</button>
+              </div>
+              <span class="unit">分钟</span>
+            </div>
           </div>
         </div>
 

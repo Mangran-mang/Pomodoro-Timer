@@ -304,6 +304,109 @@ body.mode-continuous #btnSwitch { display: none; }
 .settings-body { display: flex; flex-direction: column; gap: 18px; }
 .section { display: flex; flex-direction: column; gap: 8px; }
 
+/* 计时模式分段选择 */
+.segmented {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+}
+.seg-btn {
+  flex: 1;
+  font-family: inherit;
+  font-size: 14px;
+  padding: 9px 0;
+  border: none;
+  background: transparent;
+  color: var(--text-soft);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.seg-btn + .seg-btn { border-left: 1px solid var(--border); }
+.seg-btn:hover { background: #f7f5f0; }
+.seg-btn.active { background: var(--accent); color: #fff; }
+
+#durationSections[hidden] { display: none; }
+
+/* 程序白名单 */
+.proc-list { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.proc-list:empty::after {
+  content: '尚未添加程序（当前不启用程序监控）';
+  font-size: 13px;
+  color: var(--text-soft);
+}
+.proc-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+.proc-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.proc-del {
+  border: none;
+  background: transparent;
+  color: var(--text-soft);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 4px;
+  border-radius: 6px;
+}
+.proc-del:hover { color: #b0483f; background: #f6ecea; }
+
+.proc-manual {
+  flex: 1;
+  min-width: 0;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+}
+
+.proc-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  background: #fbfaf7;
+}
+.proc-picker[hidden] { display: none; }
+.proc-picker input {
+  font-family: inherit;
+  font-size: 13px;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+}
+.proc-picker-list {
+  max-height: 180px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.proc-pick-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  padding: 3px 4px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.proc-pick-row:hover { background: #f0ede6; }
+
 h4 { font-size: 13px; color: var(--text-soft); letter-spacing: 1px; font-weight: 600; }
 
 .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

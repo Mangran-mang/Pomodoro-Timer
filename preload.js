@@ -14,6 +14,11 @@ contextBridge.exposeInMainWorld('tomato', {
   resizeTo: (w, h) => ipcRenderer.send('win-resize', w, h),
   // 置顶/锁定状态变化回调
   onWindowState: (cb) => ipcRenderer.on('win-state', (e, s) => cb(s)),
+  // 空闲/锁屏/白名单命中状态（主进程 powerMonitor 轮询推来）
+  onIdleState: (cb) => ipcRenderer.on('idle-state', (e, s) => cb(s)),
+  // 程序白名单
+  setProcWhitelist: (list) => ipcRenderer.send('set-proc-whitelist', list),
+  listProcesses: () => ipcRenderer.invoke('list-processes'),
   // 开机自启动
   getAutoLaunch: () => ipcRenderer.invoke('get-auto-launch'),
   setAutoLaunch: (enabled) => ipcRenderer.invoke('set-auto-launch', enabled),

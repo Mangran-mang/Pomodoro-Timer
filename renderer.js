@@ -50,6 +50,9 @@ const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } ca
 /* ---------- 设置 ---------- */
 
 const DEFAULT_SETTINGS = {
+  timerMode: 'pomodoro',   // 'pomodoro' 番茄钟倒计时 | 'continuous' 无限计时
+  idlePause: true,         // 空闲（无键鼠操作）时自动暂停计时
+  procWhitelist: [],       // 程序白名单（小写进程名）；非空时仅当其中任一程序在运行才计时
   studyHours: 0, studyMinutes: 25,
   breakHours: 0, breakMinutes: 5,
   clockSize: 88, studySize: 64, breakSize: 64,
@@ -84,8 +87,14 @@ const state = {
   remaining: 0,          // 非运行时的剩余毫秒（暂停/待开始）
   studyRunStart: null,   // 当前学习运行段的开始时间（用于累计实际学习时长）
   contAccum: 0,          // 连续学习已累计毫秒（暂停时冻结）
-  contRunStart: null     // 连续学习当前运行段开始时间
+  contRunStart: null,    // 连续学习当前运行段开始时间
+  autoPaused: false,     // 是否因监控（空闲/白名单）被自动暂停（用于判断该不该自动继续）
+  pauseReason: null,     // 'idle' | 'proc' | null，用于提示文案
+  userStopped: false     // 用户手动暂停/停止过；为 true 时不自动开始
 };
+
+// 空闲多久算"离开"（秒）。与设置面板文案保持一致。
+const IDLE_LIMIT_SEC = 5 * 60;
 
 // 连续学习已进行的总时长 = 已冻结部分 + 正在进行的段落
 function continuousElapsed() {
@@ -294,7 +303,18 @@ const els = {
   calToday: $('calToday'),
   monthTotal: $('monthTotal'),
   recordFileHint: $('recordFileHint'),
-  chipContinuous: $('chipContinuous')
+  durationSections: $('durationSections'),
+  modeSegment: $('modeSegment'),
+  idlePause: $('idlePause'),
+  procList: $('procList'),
+  btnAddProc: $('btnAddProc'),
+  procManualInput: $('procManualInput'),
+  btnManualProc: $('btnManualProc'),
+  procPicker: $('procPicker'),
+  procSearch: $('procSearch'),
+  procPickerList: $('procPickerList'),
+  btnPickerOk: $('btnPickerOk'),
+  btnPickerCancel: $('btnPickerCancel')
 };
 
 function renderTodos() {
@@ -446,19 +466,25 @@ function pickAudio(key) {
 
 /* ---------- 阶段与界面 ---------- */
 
+// 被监控暂停时的提示文案
+function pausedNote() {
+  return state.pauseReason === 'proc' ? '已暂停（程序未运行）' : '已暂停（离开）';
+}
+
 function updatePhaseUI() {
   const cont = isContinuous();
   const isStudy = state.phase === 'study';
   document.body.classList.toggle('phase-study', isStudy);
   document.body.classList.toggle('phase-break', !isStudy);
   document.body.classList.toggle('mode-continuous', cont);
-  if (els.chipContinuous) els.chipContinuous.classList.toggle('active', cont);
 
-  els.phaseBadge.textContent = cont ? '连续学习' : (isStudy ? '学习' : '休息');
+  els.phaseBadge.textContent = cont ? '无限计时' : (isStudy ? '学习' : '休息');
   els.countdown.style.fontSize = (isStudy ? settings.studySize : settings.breakSize) + 'px';
 
   if (cont) {
-    els.phaseNote.textContent = state.running ? '不间断进行中' : '已暂停';
+    els.phaseNote.textContent = state.running
+      ? '计时中'
+      : (state.autoPaused ? pausedNote() : (state.contAccum > 0 ? '已暂停' : '待开始'));
     els.btnStart.textContent = state.running ? '暂停' : '继续';
     els.btnStop.textContent = '结束';
     return;
@@ -468,7 +494,7 @@ function updatePhaseUI() {
   const total = currentDurationMs();
   const note = state.running
     ? (isStudy ? '专注中' : '休息中')
-    : (state.remaining < total - 500 ? '已暂停' : '待开始');
+    : (state.autoPaused ? pausedNote() : (state.remaining < total - 500 ? '已暂停' : '待开始'));
   els.phaseNote.textContent = note;
 
   els.btnStart.textContent = state.running ? '暂停' : (state.remaining < total - 500 ? '继续' : '开始');
@@ -508,40 +534,50 @@ tick.lastSec = 0;
 
 /* ---------- 计时控制 ---------- */
 
-// 纯连续学习模式：无倒计时，正计时一直累计；时间照常进「本次学习」，可点「记录」入账
-function enterContinuous() {
-  if (isContinuous()) return;
-  const now = Date.now();
-  addStudySegment(now);        // 若番茄钟学习段正在跑，先并入本次学习，避免丢失
-  state.mode = 'continuous';
-  state.phase = 'study';
-  state.running = true;
-  state.endTime = null;
-  state.remaining = 0;
-  state.contAccum = 0;
-  state.contRunStart = now;
-  state.studyRunStart = now;   // 连续学习时间同样计入「本次学习」
-  saveState();
-  tick();
-}
-
-// 结束连续学习：时间保留在「本次学习」里，回到普通番茄钟待开始状态
-function exitContinuous() {
-  if (!isContinuous()) return;
+// 切换计时模式（在设置里选择）：番茄钟倒计时 / 无限计时
+// 切换时把进行中的学习段结算进「本次学习」，时间不丢
+function applyTimerMode(mode) {
+  const next = mode === 'continuous' ? 'continuous' : 'pomodoro';
+  if (next === state.mode) return;
   addStudySegment(Date.now());
-  state.mode = 'pomodoro';
+  state.mode = next;
+  state.phase = 'study';
   state.running = false;
   state.endTime = null;
   state.contAccum = 0;
   state.contRunStart = null;
-  state.remaining = currentDurationMs();
+  state.studyRunStart = null;
+  state.autoPaused = false;
+  state.pauseReason = null;
+  state.remaining = next === 'continuous' ? 0 : currentDurationMs();
   saveState();
+  syncModeUI();
   tick();
 }
 
-function toggleContinuous() {
-  if (isContinuous()) exitContinuous();
-  else enterContinuous();
+// 同步设置面板：模式高亮 + 无限计时下隐藏时长设置
+function syncModeUI() {
+  const cont = isContinuous();
+  if (els.modeSegment) {
+    els.modeSegment.querySelectorAll('.seg-btn').forEach((b) => {
+      b.classList.toggle('active', b.dataset.mode === (cont ? 'continuous' : 'pomodoro'));
+    });
+  }
+  if (els.durationSections) els.durationSections.hidden = cont;
+  autoResize();
+}
+
+// 结束无限计时：本轮时间结算进「本次学习」，显示归零，模式保持不变
+function stopContinuous() {
+  addStudySegment(Date.now());
+  state.running = false;
+  state.contAccum = 0;
+  state.contRunStart = null;
+  state.studyRunStart = null;
+  state.autoPaused = false;
+  state.pauseReason = null;
+  saveState();
+  tick();
 }
 
 function start() {
@@ -586,7 +622,7 @@ function pause() {
 }
 
 function stop() {
-  if (isContinuous()) { exitContinuous(); return; }   // 连续模式下「停止」= 结束连续学习
+  if (isContinuous()) { stopContinuous(); return; }   // 无限计时下「结束」= 结算本轮并归零
   addStudySegment(Date.now());
   state.running = false;
   state.endTime = null;
@@ -595,7 +631,137 @@ function stop() {
   tick();
 }
 
-// 手动切换（不播放提示音）；连续学习模式没有休息阶段
+/* ---------- 程序白名单（UI + 同步给主进程） ---------- */
+
+function saveProcWhitelist() {
+  settings.procWhitelist = Array.from(new Set(
+    settings.procWhitelist.map((s) => String(s).toLowerCase().trim()).filter(Boolean)
+  ));
+  saveSettings();
+  if (TOMATO) TOMATO.setProcWhitelist(settings.procWhitelist);  // 主进程据此决定是否轮询
+  renderProcList();
+  autoResize();
+}
+
+function renderProcList() {
+  if (!els.procList) return;
+  els.procList.innerHTML = '';
+  settings.procWhitelist.forEach((name) => {
+    const li = document.createElement('li');
+    li.className = 'proc-item';
+
+    const span = document.createElement('span');
+    span.className = 'proc-name';
+    span.textContent = name;
+
+    const del = document.createElement('button');
+    del.className = 'proc-del';
+    del.textContent = '✕';
+    del.title = '移除';
+    del.addEventListener('click', () => {
+      settings.procWhitelist = settings.procWhitelist.filter((n) => n !== name);
+      saveProcWhitelist();
+    });
+
+    li.appendChild(span);
+    li.appendChild(del);
+    els.procList.appendChild(li);
+  });
+}
+
+function addProcName(raw) {
+  const name = String(raw || '').trim().toLowerCase();
+  if (!name) return false;
+  if (settings.procWhitelist.includes(name)) return false;
+  settings.procWhitelist.push(name);
+  return true;
+}
+
+let pickerAll = [];
+
+function renderProcPicker() {
+  if (!els.procPickerList) return;
+  const kw = (els.procSearch.value || '').trim().toLowerCase();
+  const shown = kw ? pickerAll.filter((n) => n.includes(kw)) : pickerAll;
+
+  els.procPickerList.innerHTML = '';
+  if (!shown.length) {
+    const d = document.createElement('div');
+    d.className = 'hint';
+    d.style.padding = '6px';
+    d.textContent = pickerAll.length ? '没有匹配的进程' : '读取不到进程列表';
+    els.procPickerList.appendChild(d);
+    return;
+  }
+  shown.forEach((name) => {
+    const row = document.createElement('label');
+    row.className = 'proc-pick-row';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.value = name;
+    cb.checked = settings.procWhitelist.includes(name);
+    const t = document.createElement('span');
+    t.textContent = name;
+    row.appendChild(cb);
+    row.appendChild(t);
+    els.procPickerList.appendChild(row);
+  });
+}
+
+async function openProcPicker() {
+  if (!TOMATO) return;
+  els.procPicker.hidden = false;
+  els.procPickerList.innerHTML = '<div class="hint" style="padding:6px">正在读取进程列表…</div>';
+  autoResize();
+  const list = await TOMATO.listProcesses().catch(() => []);
+  pickerAll = Array.isArray(list) ? list : [];
+  els.procSearch.value = '';
+  renderProcPicker();
+  autoResize();
+}
+
+/* ---------- 空闲 / 白名单监控 ---------- */
+
+let lastMatched = null;   // 上一次的白名单命中状态，用于识别"程序刚启动"
+
+function handleIdleState(s) {
+  if (!s) return;
+
+  const procEnabled = s.matched !== null && s.matched !== undefined;
+  const procActive = s.matched === true;
+  const justActivated = procEnabled && lastMatched === false && procActive;  // 程序刚被启动
+  lastMatched = procEnabled ? procActive : null;
+
+  const idleAway = settings.idlePause && (!!s.locked || Number(s.idle) >= IDLE_LIMIT_SEC);
+  const shouldRun = !idleAway && (!procEnabled || procActive);   // 允许计时的一切条件
+
+  if (!shouldRun) {
+    // 白名单程序全部退出 = 本轮结束，允许下次程序启动时自动开始
+    if (procEnabled && !procActive) state.userStopped = false;
+
+    if (state.running) {
+      pause();                 // 冻结倒计时 / 正计时
+      state.autoPaused = true;
+      state.pauseReason = (procEnabled && !procActive) ? 'proc' : 'idle';
+      tick();
+    }
+    return;
+  }
+
+  if (state.running) return;
+
+  if (state.autoPaused) {      // 监控条件恢复 → 自动继续
+    state.autoPaused = false;
+    state.pauseReason = null;
+    start();
+    return;
+  }
+
+  // 白名单程序刚启动 → 自动开始计时（用户手动暂停过的不打扰）
+  if (justActivated && !state.userStopped) start();
+}
+
+// 手动切换（不播放提示音）；无限计时模式下没有休息阶段
 function switchPhase() {
   if (isContinuous()) return;
   addStudySegment(Date.now());
@@ -642,13 +808,16 @@ function addStudySegment(now) {
 // 关闭即停止：每次启动都从"待开始"状态开始，不延续上次的倒计时
 function restoreState() {
   state.phase = 'study';
-  state.mode = 'pomodoro';   // 连续学习不跨重启，每次打开都从普通模式开始
+  state.mode = settings.timerMode === 'continuous' ? 'continuous' : 'pomodoro';
   state.running = false;
   state.endTime = null;
-  state.remaining = currentDurationMs();
+  state.remaining = state.mode === 'continuous' ? 0 : currentDurationMs();
   state.studyRunStart = null;
   state.contAccum = 0;
   state.contRunStart = null;
+  state.autoPaused = false;
+  state.pauseReason = null;
+  state.userStopped = false;
 }
 
 /* ---------- 设置界面 ---------- */
@@ -734,6 +903,65 @@ function initSettingsUI() {
   els.btnPlayA.addEventListener('click', () => togglePreview('audioA'));
   els.btnPlayB.addEventListener('click', () => togglePreview('audioB'));
 
+  // 计时模式分段选择
+  if (els.modeSegment) {
+    els.modeSegment.querySelectorAll('.seg-btn').forEach((b) => {
+      b.addEventListener('click', () => {
+        settings.timerMode = b.dataset.mode === 'continuous' ? 'continuous' : 'pomodoro';
+        saveSettings();
+        applyTimerMode(settings.timerMode);
+      });
+    });
+  }
+  syncModeUI();
+
+  // 空闲暂停开关
+  if (els.idlePause) {
+    els.idlePause.checked = !!settings.idlePause;
+    els.idlePause.addEventListener('change', () => {
+      settings.idlePause = els.idlePause.checked;
+      saveSettings();
+      if (!settings.idlePause) {   // 关掉监控时清除标记，但不自动开始计时
+        state.autoPaused = false;
+        state.pauseReason = null;
+        tick();
+      }
+    });
+  }
+
+  // 程序白名单：列表非空即生效，空则关闭监控（主进程随之停止轮询）
+  renderProcList();
+  if (TOMATO) TOMATO.setProcWhitelist(settings.procWhitelist);
+  if (els.btnAddProc) {
+    els.btnAddProc.addEventListener('click', openProcPicker);
+
+    els.btnPickerCancel.addEventListener('click', () => {
+      els.procPicker.hidden = true;
+      autoResize();
+    });
+
+    els.procSearch.addEventListener('input', renderProcPicker);
+
+    els.btnPickerOk.addEventListener('click', () => {
+      els.procPickerList.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+        if (cb.checked) addProcName(cb.value);
+      });
+      els.procPicker.hidden = true;
+      saveProcWhitelist();
+    });
+
+    const manualAdd = () => {
+      if (addProcName(els.procManualInput.value)) {
+        els.procManualInput.value = '';
+        saveProcWhitelist();
+      }
+    };
+    els.btnManualProc.addEventListener('click', manualAdd);
+    els.procManualInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') manualAdd();
+    });
+  }
+
   // 开机自启动：启动时回读真实状态，切换后回读确认
   if (TOMATO) {
     TOMATO.getAutoLaunch().then((v) => { els.autoLaunch.checked = !!v; });
@@ -774,6 +1002,9 @@ if (TOMATO) {
     btnLock.textContent = s.locked ? '🔒' : '🔓';
     btnLock.title = s.locked ? '解除固定（可拖动）' : '固定当前位置';
   });
+
+  // 空闲/锁屏状态：无键鼠操作或锁屏时自动暂停
+  TOMATO.onIdleState(handleIdleState);
 }
 
 /* ---------- 折叠区块：统计 / 待办 / 设置 ---------- */
@@ -793,23 +1024,52 @@ function autoResize() {
   }, 80);
 }
 
-document.querySelectorAll('.chip').forEach((chip) => {
+// 手风琴：一次只展开一个区块，再点当前项则收起
+document.querySelectorAll('.chip[data-target]').forEach((chip) => {
   chip.addEventListener('click', () => {
     const card = document.getElementById(chip.dataset.target);
     if (!card) return;
     const willShow = card.hidden;
-    card.hidden = !willShow;               // 点击显示，再点隐藏
-    chip.classList.toggle('active', willShow);
+
+    // 先把所有区块收起
+    document.querySelectorAll('.chip[data-target]').forEach((c) => {
+      const k = document.getElementById(c.dataset.target);
+      if (k) k.hidden = true;
+      c.classList.remove('active');
+    });
+
+    if (willShow) {          // 打开被点的这一个
+      card.hidden = false;
+      chip.classList.add('active');
+    }
     autoResize();
   });
 });
 
 /* ---------- 事件绑定 ---------- */
 
-els.btnStart.addEventListener('click', () => (state.running ? pause() : start()));
-els.btnStop.addEventListener('click', stop);
-els.btnSwitch.addEventListener('click', switchPhase);
-els.chipContinuous.addEventListener('click', toggleContinuous);
+els.btnStart.addEventListener('click', () => {
+  state.autoPaused = false;      // 用户手动接管，清掉监控暂停标记
+  state.pauseReason = null;
+  if (state.running) {
+    pause();
+    state.userStopped = true;    // 手动暂停后不自动开始
+  } else {
+    state.userStopped = false;
+    start();
+  }
+});
+els.btnStop.addEventListener('click', () => {
+  state.autoPaused = false;
+  state.pauseReason = null;
+  state.userStopped = true;
+  stop();
+});
+els.btnSwitch.addEventListener('click', () => {
+  state.autoPaused = false;
+  state.pauseReason = null;
+  switchPhase();
+});
 
 els.todoAdd.addEventListener('click', addTodo);
 els.todoInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') addTodo(); });

@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, dialog, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, screen, powerMonitor } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { execFile } = require('child_process');
@@ -154,12 +154,21 @@ app.whenReady().then(() => {
   validateAutoLaunchEntry();  // 清理指向已不存在文件的失效条目
   normalizeRecordsFile();     // 合并 Excel 里已有的重复日期（每天一行）
   createWindow();
+  startIdleMonitor();         // 开始空闲检测
+
+  // 锁屏/解锁：立刻通知（比轮询更快响应）
+  try {
+    powerMonitor.on('lock-screen', () => broadcastIdle({ idle: 999999, locked: true }));
+    powerMonitor.on('unlock-screen', () => broadcastIdle({ idle: 0, locked: false }));
+  } catch (e) {}
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 
 app.on('window-all-closed', () => {
+  stopIdleMonitor();
   if (process.platform !== 'darwin') app.quit();
 });
 
@@ -272,6 +281,90 @@ function cleanupLegacyRunEntries() {
 ipcMain.handle('get-auto-launch', () => readAutoLaunch());
 
 ipcMain.handle('set-auto-launch', (e, enabled) => writeAutoLaunch(!!enabled));
+
+/* ---------- 空闲检测 + 程序白名单（键鼠/程序状态推给渲染进程） ---------- */
+// powerMonitor 是主进程模块，轮询在这里做，结果通过 IPC 推给渲染进程。
+// 只用系统级空闲时长、锁屏状态和进程名，不读取任何窗口内容，不涉及隐私。
+
+let idleTimer = null;
+let procWhitelist = [];      // 小写进程名数组；空数组 = 未启用程序监控
+let matchedProc = null;      // null = 未启用；true/false = 白名单中是否有程序在运行
+let procCheckBusy = false;
+let idleTick = 0;
+
+const IDLE_TICK_MS = 5000;   // 空闲检测间隔
+const PROC_POLL_TICKS = 2;   // 每 2 个 tick（10 秒）查一次进程
+
+function broadcastIdle(payload) {
+  const win = BrowserWindow.getAllWindows()[0];
+  if (win && !win.isDestroyed()) win.webContents.send('idle-state', payload);
+}
+
+// 一次枚举全部进程名（比逐个 /FI 过滤查更省：全量约 436ms，单查约 223ms）
+function listProcessNames() {
+  return new Promise((resolve) => {
+    execFile('tasklist', ['/FO', 'CSV', '/NH'], { windowsHide: true, maxBuffer: 8 * 1024 * 1024 }, (err, stdout) => {
+      if (err || !stdout) return resolve(null);
+      const names = new Set();
+      stdout.split('\n').forEach((line) => {
+        const m = line.match(/^"([^"]+)"/);
+        if (m) names.add(m[1].toLowerCase());
+      });
+      resolve(names);
+    });
+  });
+}
+
+async function checkWhitelist() {
+  if (!procWhitelist.length) { matchedProc = null; return; }
+  if (procCheckBusy) return;
+  procCheckBusy = true;
+  try {
+    const names = await listProcessNames();
+    if (names) matchedProc = procWhitelist.some((n) => names.has(n));
+  } finally {
+    procCheckBusy = false;
+  }
+}
+
+function startIdleMonitor() {
+  stopIdleMonitor();
+  idleTick = 0;
+  idleTimer = setInterval(() => {
+    let idle = 0;
+    let locked = false;
+    try {
+      idle = powerMonitor.getSystemIdleTime();
+      // getSystemIdleState 在锁屏时返回 'locked'，比只靠事件更可靠
+      locked = powerMonitor.getSystemIdleState(300) === 'locked';
+    } catch (e) { return; }
+
+    idleTick++;
+    if (idleTick % PROC_POLL_TICKS === 0) checkWhitelist();  // 异步，不阻塞
+
+    broadcastIdle({ idle, locked, matched: matchedProc });
+  }, IDLE_TICK_MS);
+
+  checkWhitelist();  // 启动时立刻查一次，避免 10 秒空窗
+}
+
+function stopIdleMonitor() {
+  if (idleTimer) { clearInterval(idleTimer); idleTimer = null; }
+}
+
+// 渲染进程同步白名单（空数组 = 关闭程序监控）；拉取当前运行的进程列表供用户勾选
+ipcMain.on('set-proc-whitelist', (e, list) => {
+  procWhitelist = Array.isArray(list)
+    ? list.map((s) => String(s).toLowerCase().trim()).filter(Boolean)
+    : [];
+  if (!procWhitelist.length) matchedProc = null;
+  checkWhitelist();   // 名单变化后立刻刷新一次
+});
+
+ipcMain.handle('list-processes', async () => {
+  const names = await listProcessNames();
+  return names ? [...names].sort() : [];
+});
 
 /* ---------- 学习记录（本地 Excel） ---------- */
 
