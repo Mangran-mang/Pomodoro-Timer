@@ -46,6 +46,7 @@
       <button class="chip" data-target="recordCard">记录</button>
       <button class="chip" data-target="statsCard">统计</button>
       <button class="chip" data-target="todoCard">待办</button>
+      <button class="chip" data-target="monitorCard">监控</button>
       <button class="chip" data-target="settingsCard">设置</button>
     </div>
 
@@ -89,18 +90,9 @@
       <ul id="todoList" class="todos"></ul>
     </section>
 
-    <!-- 设置（默认隐藏） -->
-    <section class="card" id="settingsCard" hidden>
+    <!-- 监控：空闲暂停 + 程序白名单（默认隐藏） -->
+    <section class="card" id="monitorCard" hidden>
       <div class="settings-body">
-
-        <div class="section">
-          <h4>计时模式</h4>
-          <div class="segmented" id="modeSegment">
-            <button type="button" class="seg-btn" data-mode="pomodoro">番茄钟计时</button>
-            <button type="button" class="seg-btn" data-mode="continuous">无限计时</button>
-          </div>
-          <div class="hint">番茄钟：倒计时结束自动切换休息；无限计时：没有倒计时，一直累计直到手动结束</div>
-        </div>
 
         <div class="section">
           <h4>空闲暂停</h4>
@@ -130,6 +122,22 @@
               <button id="btnPickerCancel" class="btn small">取消</button>
             </div>
           </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- 设置（默认隐藏） -->
+    <section class="card" id="settingsCard" hidden>
+      <div class="settings-body">
+
+        <div class="section">
+          <h4>计时模式</h4>
+          <div class="segmented" id="modeSegment">
+            <button type="button" class="seg-btn" data-mode="pomodoro">番茄钟计时</button>
+            <button type="button" class="seg-btn" data-mode="continuous">无限计时</button>
+          </div>
+          <div class="hint">番茄钟：倒计时结束自动切换休息；无限计时：没有倒计时，一直累计直到手动结束</div>
         </div>
 
         <div id="durationSections">

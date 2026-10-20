@@ -62,14 +62,15 @@ const DEFAULT_SETTINGS = {
 
 let settings = Object.assign({}, DEFAULT_SETTINGS, lsGet('tomato-settings', {}));
 
+// 保存设置：除音频对象外整体持久化。
+// 注意：以前这里是硬编码字段列表，新增设置项（计时模式/空闲暂停/程序白名单）
+// 忘了加进去导致重启就丢，所以改成展开整个 settings，以后新增字段自动生效。
 function saveSettings() {
+  const { audioA, audioB, ...rest } = settings;
   lsSet('tomato-settings', {
-    studyHours: settings.studyHours, studyMinutes: settings.studyMinutes,
-    breakHours: settings.breakHours, breakMinutes: settings.breakMinutes,
-    clockSize: settings.clockSize, studySize: settings.studySize, breakSize: settings.breakSize,
-    volume: settings.volume,
-    audioA: settings.audioA ? { path: settings.audioA.path, name: settings.audioA.name } : null,
-    audioB: settings.audioB ? { path: settings.audioB.path, name: settings.audioB.name } : null
+    ...rest,
+    audioA: audioA ? { path: audioA.path, name: audioA.name } : null,
+    audioB: audioB ? { path: audioB.path, name: audioB.name } : null
   });
 }
 

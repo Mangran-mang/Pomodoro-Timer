@@ -219,32 +219,44 @@ const LEGACY_RUN_NAMES = ['electron.app.tomato-clock', 'tomato-clock']; // 旧�
 
 function regExec(args) {
   return new Promise((resolve) => {
-    execFile('reg', args, { windowsHide: true }, (err) => resolve(!err));
+    try {
+      execFile('reg', args, { windowsHide: true }, (err) => resolve(!err));
+    } catch (e) {
+      resolve(false);   // 例：reg.exe 被安全策略拦截时 spawn 会同步抛错
+    }
   });
 }
 
 function readAutoLaunch() {
   return new Promise((resolve) => {
-    execFile('reg', ['query', RUN_KEY], { windowsHide: true }, (err, stdout) => {
-      if (err || !stdout) return resolve(false);
-      const s = stdout;
-      resolve(s.includes(RUN_NAME) || LEGACY_RUN_NAMES.some((n) => s.includes(n)));
-    });
+    try {
+      execFile('reg', ['query', RUN_KEY], { windowsHide: true }, (err, stdout) => {
+        if (err || !stdout) return resolve(false);
+        const s = stdout;
+        resolve(s.includes(RUN_NAME) || LEGACY_RUN_NAMES.some((n) => s.includes(n)));
+      });
+    } catch (e) {
+      resolve(false);
+    }
   });
 }
 
 // 启动时校验自启动条目：若指向的文件已不存在（如旧版便携把路径写进了临时目录），自动清理
 function validateAutoLaunchEntry() {
   return new Promise((resolve) => {
-    execFile('reg', ['query', RUN_KEY, '/v', RUN_NAME], { windowsHide: true }, (err, stdout) => {
-      if (err || !stdout) return resolve();
-      const m = String(stdout).match(/"([^"]+)"/);
-      const p = m ? m[1] : null;
-      if (p && !fs.existsSync(p)) {
-        regExec(['delete', RUN_KEY, '/v', RUN_NAME, '/f']);
-      }
-      resolve();
-    });
+    try {
+      execFile('reg', ['query', RUN_KEY, '/v', RUN_NAME], { windowsHide: true }, (err, stdout) => {
+        if (err || !stdout) return resolve();
+        const m = String(stdout).match(/"([^"]+)"/);
+        const p = m ? m[1] : null;
+        if (p && !fs.existsSync(p)) {
+          regExec(['delete', RUN_KEY, '/v', RUN_NAME, '/f']);
+        }
+        resolve();
+      });
+    } catch (e) {
+      resolve();   // 例：reg.exe 被安全策略拦截
+    }
   });
 }
 
@@ -300,18 +312,35 @@ function broadcastIdle(payload) {
   if (win && !win.isDestroyed()) win.webContents.send('idle-state', payload);
 }
 
+// Windows 控制台程序（tasklist 等）按系统 ANSI 代码页输出，中文系统是 GBK/936。
+// 直接按 UTF-8 解码会让「哔哩哔哩.exe」这类中文进程名变成乱码，所以这里按 GBK 解。
+function decodeConsoleOutput(buf) {
+  try {
+    const s = new TextDecoder('gbk').decode(buf);
+    if (!s.includes('\uFFFD')) return s;   // GBK 解码干净，直接用
+  } catch (e) {}
+  try { return new TextDecoder('utf-8').decode(buf); } catch (e) { return buf.toString('utf8'); }
+}
+
 // 一次枚举全部进程名（比逐个 /FI 过滤查更省：全量约 436ms，单查约 223ms）
 function listProcessNames() {
   return new Promise((resolve) => {
-    execFile('tasklist', ['/FO', 'CSV', '/NH'], { windowsHide: true, maxBuffer: 8 * 1024 * 1024 }, (err, stdout) => {
-      if (err || !stdout) return resolve(null);
-      const names = new Set();
-      stdout.split('\n').forEach((line) => {
-        const m = line.match(/^"([^"]+)"/);
-        if (m) names.add(m[1].toLowerCase());
-      });
-      resolve(names);
-    });
+    try {
+      execFile('tasklist', ['/FO', 'CSV', '/NH'],
+        { windowsHide: true, maxBuffer: 8 * 1024 * 1024, encoding: 'buffer' },
+        (err, stdout) => {
+          if (err || !stdout) return resolve(null);
+          const text = decodeConsoleOutput(stdout);
+          const names = new Set();
+          text.split('\n').forEach((line) => {
+            const m = line.match(/^"([^"]+)"/);
+            if (m) names.add(m[1].toLowerCase());
+          });
+          resolve(names);
+        });
+    } catch (e) {
+      resolve(null);   // 例：tasklist 被安全策略拦截
+    }
   });
 }
 
